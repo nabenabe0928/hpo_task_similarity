@@ -1,6 +1,6 @@
 import unittest
 
-from repo_name.example import hello
+from task_similarity.example import hello
 
 
 def test_hello():
