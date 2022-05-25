@@ -16,7 +16,7 @@ def get_promising_pdf(
     lower_is_better: bool,
 ) -> MultiVariateParzenEstimator:
     hp_names = config_space.get_hyperparameter_names()
-    n_promisings = int(promising_quantile * observations[objective_name].size)
+    n_promisings = max(1, int(promising_quantile * observations[objective_name].size))
     _sign = 1 if lower_is_better else -1
     promising_indices = np.argsort(_sign * observations[objective_name])[:n_promisings]
     promising_configs = {}
@@ -27,12 +27,14 @@ def get_promising_pdf(
         observations=promising_configs,
         config_space=config_space,
         default_min_bandwidth_factor=default_min_bandwidth_factor,
+        prior=False,
     )
 
 
 def get_promising_pdfs(
     config_space: CS.ConfigurationSpace,
     observations_set: List[Dict[str, np.ndarray]],
+    *,
     objective_name: str = "loss",
     promising_quantile: float = 0.1,
     default_min_bandwidth_factor: float = 1e-1,
@@ -54,9 +56,10 @@ def get_promising_pdfs(
     return promising_pdfs
 
 
-class TaskSimilarity:
+class IoUTaskSimilarity:
     """
     The task similarity measure class for blackbox optimization.
+    IoU stands for Intersection over union.
 
     Args:
         config_space (CS.ConfigurationSpace):
@@ -123,7 +126,7 @@ class TaskSimilarity:
         self._promising_indices = self._compute_promising_indices()
 
     def _compute_promising_indices(self) -> np.ndarray:
-        n_promisings = int(self._samples[0].size * self._promising_quantile)
+        n_promisings = max(1, int(self._samples[0].size * self._promising_quantile))
         # Negative log pdf is better when it is larger
         negative_log_promising_pdf_vals = np.array([-pe.log_pdf(self._samples) for pe in self._parzen_estimators])
         indices = np.arange(negative_log_promising_pdf_vals[0].size)
