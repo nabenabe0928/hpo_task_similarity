@@ -1,10 +1,21 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import ConfigSpace as CS
 
 import numpy as np
 
 from parzen_estimator import MultiVariateParzenEstimator, get_multivar_pdf
+
+
+class _TaskSimilarityParameters(NamedTuple):
+    n_samples: int
+    config_space: CS.ConfigurationSpace
+    promising_quantile: float
+    rng: Optional[np.random.RandomState]
+    objective_name: str
+    default_min_bandwidth_factor: float
+    lower_is_better: bool
+    n_resamples: Optional[int]
 
 
 def _over_resample(
@@ -29,6 +40,7 @@ def _over_resample(
         config_space=config_space,
         default_min_bandwidth_factor=default_min_bandwidth_factor,
         prior=False,
+        vals_for_categorical_is_indices=True,
     )
 
 
@@ -203,22 +215,17 @@ class IoUTaskSimilarity:
                 The indices of promising samples drawn from sobol sequence.
                 The promise is determined via the promising pdf values.
         """
-        if promising_quantile < 0 or promising_quantile > 1:
-            raise ValueError(f"The quantile for the promising domain must be in [0, 1], but got {promising_quantile}")
-        if observations_set is None and promising_pdfs is None:
-            raise ValueError("Either observations_set or promising_pdfs must be provided.")
-        elif promising_pdfs is None:
-            assert observations_set is not None
-            promising_pdfs = get_promising_pdfs(
-                config_space=config_space,
-                observations_set=observations_set,
-                objective_name=objective_name,
-                promising_quantile=promising_quantile,
-                default_min_bandwidth_factor=default_min_bandwidth_factor,
-                lower_is_better=lower_is_better,
-                n_resamples=n_resamples,
-            )
-
+        self._params = _TaskSimilarityParameters(
+            n_samples=n_samples,
+            config_space=config_space,
+            promising_quantile=promising_quantile,
+            rng=rng,
+            objective_name=objective_name,
+            default_min_bandwidth_factor=default_min_bandwidth_factor,
+            lower_is_better=lower_is_better,
+            n_resamples=n_resamples,
+        )
+        promising_pdfs = self._validate_input_and_promising_pdfs(observations_set, promising_pdfs)
         assert promising_pdfs is not None  # mypy re-definition
         self._hypervolume = _get_hypervolume(config_space)
         self._parzen_estimators = promising_pdfs
@@ -228,6 +235,30 @@ class IoUTaskSimilarity:
         self._negative_log_promising_pdf_vals: np.ndarray
         self._promising_pdf_vals: Optional[np.ndarray] = None
         self._promising_indices = self._compute_promising_indices()
+
+    def _validate_input_and_promising_pdfs(
+        self,
+        observations_set: Optional[List[Dict[str, np.ndarray]]],
+        promising_pdfs: Optional[List[MultiVariateParzenEstimator]],
+    ) -> List[MultiVariateParzenEstimator]:
+        promising_quantile = self._params.promising_quantile
+        if promising_quantile < 0 or promising_quantile > 1:
+            raise ValueError(f"The quantile for the promising domain must be in [0, 1], but got {promising_quantile}")
+        if observations_set is None and promising_pdfs is None:
+            raise ValueError("Either observations_set or promising_pdfs must be provided.")
+        elif promising_pdfs is None:
+            assert observations_set is not None
+            promising_pdfs = get_promising_pdfs(
+                config_space=self._params.config_space,
+                observations_set=observations_set,
+                objective_name=self._params.objective_name,
+                promising_quantile=self._params.promising_quantile,
+                default_min_bandwidth_factor=self._params.default_min_bandwidth_factor,
+                lower_is_better=self._params.lower_is_better,
+                n_resamples=self._params.n_resamples,
+            )
+
+        return promising_pdfs
 
     def _compute_promising_indices(self) -> np.ndarray:
         """
