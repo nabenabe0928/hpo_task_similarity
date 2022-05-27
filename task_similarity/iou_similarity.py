@@ -7,7 +7,7 @@ import numpy as np
 from parzen_estimator import MultiVariateParzenEstimator, get_multivar_pdf
 
 
-class _TaskSimilarityParameters(NamedTuple):
+class _IoUTaskSimilarityParameters(NamedTuple):
     n_samples: int
     config_space: CS.ConfigurationSpace
     promising_quantile: float
@@ -191,6 +191,8 @@ class IoUTaskSimilarity:
                 The observations for each task.
     """
 
+    _method_choices = ["top_set", "total_variation"]
+
     def __init__(
         self,
         n_samples: int,
@@ -215,7 +217,7 @@ class IoUTaskSimilarity:
                 The indices of promising samples drawn from sobol sequence.
                 The promise is determined via the promising pdf values.
         """
-        self._params = _TaskSimilarityParameters(
+        self._params = _IoUTaskSimilarityParameters(
             n_samples=n_samples,
             config_space=config_space,
             promising_quantile=promising_quantile,
@@ -259,6 +261,10 @@ class IoUTaskSimilarity:
             )
 
         return promising_pdfs
+
+    @property
+    def method_choices(self) -> List[str]:
+        return self._method_choices[:]
 
     def _compute_promising_indices(self) -> np.ndarray:
         """
@@ -337,9 +343,8 @@ class IoUTaskSimilarity:
             task_similarity (float):
                 Task similarity estimated via the total variation distance.
         """
-        method_choices = ["top_set", "total_variation"]
-        if method not in method_choices:
-            raise ValueError(f"Task similarity method must be in {method_choices}, but got {method}")
+        if method not in self._method_choices:
+            raise ValueError(f"Task similarity method must be in {self._method_choices}, but got {method}")
 
         return getattr(self, f"_compute_task_similarity_by_{method}")(task1_id, task2_id)
 
