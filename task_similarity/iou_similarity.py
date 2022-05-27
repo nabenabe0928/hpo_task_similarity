@@ -8,6 +8,27 @@ from parzen_estimator import MultiVariateParzenEstimator, get_multivar_pdf
 
 
 class _IoUTaskSimilarityParameters(NamedTuple):
+    """
+    Args:
+        config_space (CS.ConfigurationSpace):
+            The configuration space for the parzen estimator.
+        objective_name (str):
+            The name of the objective metric.
+        promising_quantile (float):
+            The quantile of the promising configs.
+        default_min_bandwidth_factor (float):
+            The factor of min bandwidth.
+            For example, when we take 0.1, the bandwidth will be larger
+            than 0.1 * (ub - lb).
+        lower_is_better (bool):
+            Whether the objective metric is better when lower.
+        rng (np.random.RandomState):
+            The random number generator.
+        n_resamples (Optional[int]):
+            How many resamplings we use for the parzen estimator.
+            If None, we do not use resampling.
+    """
+
     n_samples: int
     config_space: CS.ConfigurationSpace
     promising_quantile: float
@@ -45,74 +66,46 @@ def _over_resample(
 
 
 def _get_promising_pdf(
-    config_space: CS.ConfigurationSpace,
     observations: Dict[str, np.ndarray],
-    objective_name: str,
-    promising_quantile: float,
-    default_min_bandwidth_factor: float,
-    lower_is_better: bool,
-    rng: np.random.RandomState,
-    n_resamples: Optional[int],
+    params: _IoUTaskSimilarityParameters,
 ) -> MultiVariateParzenEstimator:
-    hp_names = config_space.get_hyperparameter_names()
-    n_promisings = max(1, int(promising_quantile * observations[objective_name].size))
-    _sign = 1 if lower_is_better else -1
-    promising_indices = np.argsort(_sign * observations[objective_name])[:n_promisings]
+    hp_names = params.config_space.get_hyperparameter_names()
+    n_promisings = max(1, int(params.promising_quantile * observations[params.objective_name].size))
+    _sign = 1 if params.lower_is_better else -1
+    promising_indices = np.argsort(_sign * observations[params.objective_name])[:n_promisings]
     promising_configs = {}
     for hp_name in hp_names:
         promising_configs[hp_name] = observations[hp_name][promising_indices]
 
-    if n_resamples is None:
+    if params.n_resamples is None:
         return get_multivar_pdf(
             observations=promising_configs,
-            config_space=config_space,
-            default_min_bandwidth_factor=default_min_bandwidth_factor,
+            config_space=params.config_space,
+            default_min_bandwidth_factor=params.default_min_bandwidth_factor,
             prior=False,
         )
     else:
         return _over_resample(
-            config_space=config_space,
+            config_space=params.config_space,
             promising_configs=promising_configs,
-            n_resamples=n_resamples,
-            default_min_bandwidth_factor=default_min_bandwidth_factor,
-            rng=rng,
+            n_resamples=params.n_resamples,
+            default_min_bandwidth_factor=params.default_min_bandwidth_factor,
+            rng=params.rng,
         )
 
 
-def get_promising_pdfs(
-    config_space: CS.ConfigurationSpace,
+def _get_promising_pdfs(
     observations_set: List[Dict[str, np.ndarray]],
-    *,
-    objective_name: str = "loss",
-    promising_quantile: float = 0.1,
-    default_min_bandwidth_factor: float = 1e-1,
-    lower_is_better: bool = True,
-    rng: Optional[np.random.RandomState] = None,
-    n_resamples: Optional[int] = None,
+    params: _IoUTaskSimilarityParameters,
 ) -> List[MultiVariateParzenEstimator]:
     """
     Get the promising distributions for each task.
 
     Args:
-        config_space (CS.ConfigurationSpace):
-            The configuration space for the parzen estimator.
         observations_set (List[Dict[str, np.ndarray]]):
             The observations for each task.
-        objective_name (str):
-            The name of the objective metric.
-        promising_quantile (float):
-            The quantile of the promising configs.
-        default_min_bandwidth_factor (float):
-            The factor of min bandwidth.
-            For example, when we take 0.1, the bandwidth will be larger
-            than 0.1 * (ub - lb).
-        lower_is_better (bool):
-            Whether the objective metric is better when lower.
-        rng (np.random.RandomState):
-            The random number generator.
-        n_resamples (Optional[int]):
-            How many resamplings we use for the parzen estimator.
-            If None, we do not use resampling.
+        params (IoUTaskSimilarityParameters):
+            The parameters for the task similarity measure class.
 
     Returns:
         promising_pdfs (List[MultiVariateParzenEstimator]):
@@ -121,18 +114,7 @@ def get_promising_pdfs(
     """
     promising_pdfs: List[MultiVariateParzenEstimator] = []
     for observations in observations_set:
-        promising_pdfs.append(
-            _get_promising_pdf(
-                config_space=config_space,
-                observations=observations,
-                objective_name=objective_name,
-                promising_quantile=promising_quantile,
-                default_min_bandwidth_factor=default_min_bandwidth_factor,
-                lower_is_better=lower_is_better,
-                rng=rng if rng is not None else np.random.RandomState(),
-                n_resamples=n_resamples,
-            )
-        )
+        promising_pdfs.append(_get_promising_pdf(observations=observations, params=params))
 
     return promising_pdfs
 
@@ -248,17 +230,12 @@ class IoUTaskSimilarity:
             raise ValueError(f"The quantile for the promising domain must be in [0, 1], but got {promising_quantile}")
         if observations_set is None and promising_pdfs is None:
             raise ValueError("Either observations_set or promising_pdfs must be provided.")
-        elif promising_pdfs is None:
+
+        if promising_pdfs is not None:  # it is redundant, but needed for mypy redefinition
+            promising_pdfs = promising_pdfs
+        else:
             assert observations_set is not None
-            promising_pdfs = get_promising_pdfs(
-                config_space=self._params.config_space,
-                observations_set=observations_set,
-                objective_name=self._params.objective_name,
-                promising_quantile=self._params.promising_quantile,
-                default_min_bandwidth_factor=self._params.default_min_bandwidth_factor,
-                lower_is_better=self._params.lower_is_better,
-                n_resamples=self._params.n_resamples,
-            )
+            promising_pdfs = _get_promising_pdfs(observations_set, self._params)
 
         return promising_pdfs
 
@@ -322,6 +299,8 @@ class IoUTaskSimilarity:
         """
         if self._promising_pdf_vals is None:
             self._promising_pdf_vals = np.exp(-self._negative_log_promising_pdf_vals)
+        else:  # it is redundant, but needed for mypy redefinition
+            self._promising_pdf_vals = self._promising_pdf_vals
 
         pdf_diff = self._promising_pdf_vals[task1_id] - self._promising_pdf_vals[task2_id]
         total_variation = 0.5 * np.abs(pdf_diff * self._hypervolume).mean()
@@ -375,7 +354,11 @@ class IoUTaskSimilarity:
         task_similarities[diag_slice] = 1
         computed[diag_slice] = True
 
-        task_pairs = task_pairs if task_pairs else [(i, j) for i in range(self._n_tasks) for j in range(self._n_tasks)]
+        task_pairs = (
+            task_pairs
+            if task_pairs is not None
+            else [(i, j) for i in range(self._n_tasks) for j in range(self._n_tasks)]
+        )
         for task1_id, task2_id in task_pairs:
             if not computed[task1_id, task2_id]:
                 sim = self._compute_task_similarity(task1_id, task2_id, method=method)

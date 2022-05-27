@@ -8,7 +8,12 @@ import ConfigSpace.hyperparameters as CSH
 import numpy as np
 
 from task_similarity import IoUTaskSimilarity
-from task_similarity.iou_similarity import _get_hypervolume, _get_promising_pdf, get_promising_pdfs
+from task_similarity.iou_similarity import (
+    _IoUTaskSimilarityParameters,
+    _get_hypervolume,
+    _get_promising_pdf,
+    _get_promising_pdfs,
+)
 
 
 def get_random_config(n_configs: int = 10) -> Tuple[CS.ConfigurationSpace, Dict[str, np.ndarray]]:
@@ -41,16 +46,17 @@ def test_get_promising_pdf_with_resampling() -> None:
     configs[loss_metric] = loss_vals
 
     n_resamples = 100
-    pdf = _get_promising_pdf(
+    params = _IoUTaskSimilarityParameters(
+        n_samples=10,
         config_space=config_space,
-        observations=configs,
-        objective_name=loss_metric,
         promising_quantile=0.1,
+        objective_name="loss",
         default_min_bandwidth_factor=0.1,
         lower_is_better=True,
         rng=np.random.RandomState(),
         n_resamples=n_resamples,
     )
+    pdf = _get_promising_pdf(observations=configs, params=params)
     assert pdf.size == n_resamples
     assert pdf.dim == len(configs) - 1
 
@@ -64,16 +70,17 @@ def test_get_promising_pdf() -> None:
 
     for quantile in [0.1, 0.3, 0.5, 0.7, 0.9]:
         for lower_is_better in [True, False]:
-            pdf = _get_promising_pdf(
+            params = _IoUTaskSimilarityParameters(
+                n_samples=10,
                 config_space=config_space,
-                observations=configs,
-                objective_name=loss_metric,
                 promising_quantile=quantile,
+                objective_name=loss_metric,
                 default_min_bandwidth_factor=0.1,
                 lower_is_better=lower_is_better,
                 rng=np.random.RandomState(),
                 n_resamples=None,
             )
+            pdf = _get_promising_pdf(observations=configs, params=params)
             n_promisings = int(n_configs * quantile)
             assert pdf.dim == len(configs) - 1
             assert pdf.size == n_promisings
@@ -89,8 +96,19 @@ def test_get_promising_pdfs() -> None:
     config_space, configs = get_random_config(n_configs)
     loss_vals = np.arange(n_configs)
     configs[loss_metric] = loss_vals
+    params = _IoUTaskSimilarityParameters(
+        n_samples=10,
+        config_space=config_space,
+        promising_quantile=0.1,
+        objective_name=loss_metric,
+        default_min_bandwidth_factor=0.1,
+        lower_is_better=True,
+        rng=np.random.RandomState(),
+        n_resamples=None,
+    )
     n_pdfs = 3
-    pdfs = get_promising_pdfs(config_space, observations_set=[configs] * n_pdfs)
+    pdfs = _get_promising_pdfs(observations_set=[configs] * n_pdfs, params=params)
+    IoUTaskSimilarity(n_samples=10, config_space=config_space, promising_pdfs=pdfs)
 
     assert len(pdfs) == n_pdfs
 
@@ -121,10 +139,52 @@ class TestIoUTaskSimilarity(unittest.TestCase):
         assert ts._promising_indices.size == n_samples * ts._promising_quantile
 
     def test_compute_task_similarity(self) -> None:
-        pass
+        n_configs = 10
+        config_space, configs = get_random_config(n_configs=n_configs)
+        n_samples = 10
+        configs["loss"] = np.arange(n_configs)
+        ts = IoUTaskSimilarity(n_samples=n_samples, config_space=config_space, observations_set=[configs, configs])
+        with pytest.raises(ValueError):
+            ts._compute_task_similarity(task1_id=0, task2_id=1, method="dummy")
+
+        for choice in ts.method_choices:
+            assert ts._compute_task_similarity(task1_id=0, task2_id=1, method=choice) == 1.0
+
+        ts._compute_task_similarity_by_total_variation(task1_id=0, task2_id=1)
 
     def test_compute(self) -> None:
-        pass
+        n_configs = 10
+        config_space, configs = get_random_config(n_configs=n_configs)
+        n_samples = 10
+        configs["loss"] = np.arange(n_configs)
+        ts = IoUTaskSimilarity(
+            n_samples=n_samples, config_space=config_space, observations_set=[configs, configs, configs]
+        )
+        assert np.allclose(ts.compute(), np.ones(9).reshape(3, 3))
+        assert np.allclose(ts.compute(task_pairs=[]), np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]]))
+        assert np.allclose(ts.compute(task_pairs=[(0, 1), (0, 2)]), np.array([[1, 1, 1], [1, 1, 0], [1, 0, 1]]))
+
+        config_space = CS.ConfigurationSpace()
+        config_space.add_hyperparameters(
+            [
+                CSH.UniformFloatHyperparameter("x0", lower=-1, upper=1),
+                CSH.UniformFloatHyperparameter("x1", lower=-1, upper=1),
+                CSH.UniformFloatHyperparameter("x2", lower=-1, upper=1),
+            ]
+        )
+        loss_metric = "dummy_loss"
+        size = 100
+        configs1 = {f"x{idx}": vals for idx, vals in enumerate(np.random.random((3, 100)))}
+        configs2 = {f"x{idx}": vals for idx, vals in enumerate(np.random.random((3, 100)) - 1)}
+        configs1[loss_metric] = np.arange(size)
+        configs2[loss_metric] = np.arange(size)
+        ts = IoUTaskSimilarity(
+            n_samples=n_samples,
+            config_space=config_space,
+            observations_set=[configs1, configs2],
+            objective_name=loss_metric,
+        )
+        assert np.allclose(ts.compute(), np.identity(2))
 
 
 if __name__ == "__main__":
