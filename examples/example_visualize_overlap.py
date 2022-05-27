@@ -27,7 +27,7 @@ def visualize_overlap(ts: IoUTaskSimilarity) -> None:
         pe = ts._parzen_estimators[i]
         promising_indices = ts._promising_indices[i]
         X, Y = np.meshgrid(np.linspace(lb, ub, n_grids), np.linspace(lb, ub, n_grids))
-        X, Y = X.reshape(n_grids ** 2), Y.reshape(n_grids ** 2)
+        X, Y = X.reshape(n_grids**2), Y.reshape(n_grids**2)
         Z = pe.pdf([X, Y])
 
         shape_ = (n_grids, n_grids)
@@ -35,7 +35,7 @@ def visualize_overlap(ts: IoUTaskSimilarity) -> None:
         ax.contourf(X, Y, Z)
         ax.scatter(ts._samples[0][promising_indices], ts._samples[1][promising_indices], color="red", alpha=0.05)
 
-        idx1, idx2 = ts._promising_indices[i], ts._promising_indices[- i - 1]
+        idx1, idx2 = ts._promising_indices[i], ts._promising_indices[-i - 1]
         indices_both = promising_indices[np.in1d(idx1, idx2, assume_unique=True)]
         ax.scatter(ts._samples[0][indices_both], ts._samples[1][indices_both], color="blue", alpha=0.05)
 
