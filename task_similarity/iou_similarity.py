@@ -54,7 +54,9 @@ def _over_resample(
     )
     resampled_configs = {
         hp_name: samples
-        for hp_name, samples in zip(mvpdf.hp_names, mvpdf.sample(n_samples=n_resamples, rng=rng, dim_independent=False))
+        for hp_name, samples in zip(
+            mvpdf.param_names, mvpdf.sample(n_samples=n_resamples, rng=rng, dim_independent=False)
+        )
     }
     return get_multivar_pdf(
         observations=resampled_configs,
