@@ -4,7 +4,7 @@ import ConfigSpace as CS
 
 import numpy as np
 
-from parzen_estimator import MultiVariateParzenEstimator, get_multivar_pdf
+from parzen_estimator import MultiVariateParzenEstimator, get_multivar_pdf, over_resample
 
 
 class _IoUTaskSimilarityParameters(NamedTuple):
@@ -39,34 +39,6 @@ class _IoUTaskSimilarityParameters(NamedTuple):
     n_resamples: Optional[int]
 
 
-def _over_resample(
-    config_space: CS.ConfigurationSpace,
-    promising_configs: Dict[str, np.ndarray],
-    n_resamples: int,
-    default_min_bandwidth_factor: float,
-    rng: np.random.RandomState,
-) -> MultiVariateParzenEstimator:
-    mvpdf = get_multivar_pdf(
-        observations=promising_configs,
-        config_space=config_space,
-        default_min_bandwidth_factor=default_min_bandwidth_factor,
-        prior=False,
-    )
-    resampled_configs = {
-        hp_name: samples
-        for hp_name, samples in zip(
-            mvpdf.param_names, mvpdf.sample(n_samples=n_resamples, rng=rng, dim_independent=False)
-        )
-    }
-    return get_multivar_pdf(
-        observations=resampled_configs,
-        config_space=config_space,
-        default_min_bandwidth_factor=default_min_bandwidth_factor,
-        prior=False,
-        vals_for_categorical_is_indices=True,
-    )
-
-
 def _get_promising_pdf(
     observations: Dict[str, np.ndarray],
     params: _IoUTaskSimilarityParameters,
@@ -87,12 +59,12 @@ def _get_promising_pdf(
             prior=False,
         )
     else:
-        return _over_resample(
+        return over_resample(
             config_space=params.config_space,
-            promising_configs=promising_configs,
+            observations=promising_configs,
             n_resamples=params.n_resamples,
-            default_min_bandwidth_factor=params.default_min_bandwidth_factor,
             rng=params.rng,
+            default_min_bandwidth_factor=params.default_min_bandwidth_factor,
         )
 
 
