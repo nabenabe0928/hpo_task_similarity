@@ -2,6 +2,8 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import ConfigSpace as CS
 
+from fast_pareto import nondominated_rank
+
 import numpy as np
 
 from parzen_estimator import MultiVariateParzenEstimator, get_multivar_pdf, over_resample
@@ -12,16 +14,16 @@ class _IoUTaskSimilarityParameters(NamedTuple):
     Args:
         config_space (CS.ConfigurationSpace):
             The configuration space for the parzen estimator.
-        objective_name (str):
-            The name of the objective metric.
+        objective_names (List[str]):
+            The names of the objective metrics.
         promising_quantile (float):
             The quantile of the promising configs.
         default_min_bandwidth_factor (float):
             The factor of min bandwidth.
             For example, when we take 0.1, the bandwidth will be larger
             than 0.1 * (ub - lb).
-        lower_is_better (bool):
-            Whether the objective metric is better when lower.
+        larger_is_better_objectives (Optional[List[int]]):
+            The indices of the objectives that are better when larger.
         rng (np.random.RandomState):
             The random number generator.
         n_resamples (Optional[int]):
@@ -33,10 +35,26 @@ class _IoUTaskSimilarityParameters(NamedTuple):
     config_space: CS.ConfigurationSpace
     promising_quantile: float
     rng: Optional[np.random.RandomState]
-    objective_name: str
+    objective_names: List[str]
     default_min_bandwidth_factor: float
-    lower_is_better: bool
+    larger_is_better_objectives: Optional[List[int]]
     n_resamples: Optional[int]
+
+
+def _calculate_order(
+    observations: Dict[str, np.ndarray],
+    objective_names: List[str],
+    larger_is_better_objectives: Optional[List[int]],
+) -> np.ndarray:
+    if len(objective_names) == 1:
+        _sign = 1 if larger_is_better_objectives is None else -1
+        order = np.argsort(_sign * observations[objective_names[0]])
+    else:
+        costs = np.array([observations[name] for name in objective_names]).T
+        ranks = nondominated_rank(costs=costs, larger_is_better_objectives=larger_is_better_objectives, tie_break=True)
+        order = np.argsort(ranks)
+
+    return order
 
 
 def _get_promising_pdf(
@@ -44,9 +62,15 @@ def _get_promising_pdf(
     params: _IoUTaskSimilarityParameters,
 ) -> MultiVariateParzenEstimator:
     hp_names = params.config_space.get_hyperparameter_names()
-    n_promisings = max(1, int(params.promising_quantile * observations[params.objective_name].size))
-    _sign = 1 if params.lower_is_better else -1
-    promising_indices = np.argsort(_sign * observations[params.objective_name])[:n_promisings]
+    n_observations = observations[params.objective_names[0]].size
+    n_promisings = max(1, int(params.promising_quantile * n_observations))
+    order = _calculate_order(
+        observations=observations,
+        objective_names=params.objective_names,
+        larger_is_better_objectives=params.larger_is_better_objectives,
+    )
+
+    promising_indices = order[:n_promisings]
     promising_configs = {}
     for hp_name in hp_names:
         promising_configs[hp_name] = observations[hp_name][promising_indices]
@@ -132,8 +156,8 @@ class IoUTaskSimilarity:
             The number of samples we use for the Monte-Carlo.
         promising_quantile (float):
             How much quantile we should consider as promising.
-        objective_name (str):
-            The name of the objective metric.
+        objective_names (List[str]):
+            The names of the objective metrics.
         rng (Optional[np.random.RandomState]):
             The random number generator to be used.
         n_resamples (Optional[int]):
@@ -158,9 +182,9 @@ class IoUTaskSimilarity:
         observations_set: Optional[List[Dict[str, np.ndarray]]] = None,
         promising_pdfs: Optional[List[MultiVariateParzenEstimator]] = None,
         rng: Optional[np.random.RandomState] = None,
-        objective_name: str = "loss",
+        objective_names: List[str] = ["loss"],
         default_min_bandwidth_factor: float = 1e-1,
-        lower_is_better: bool = True,
+        larger_is_better_objectives: Optional[List[int]] = None,
         n_resamples: Optional[int] = None,
     ):
         """
@@ -178,9 +202,9 @@ class IoUTaskSimilarity:
             config_space=config_space,
             promising_quantile=promising_quantile,
             rng=rng,
-            objective_name=objective_name,
+            objective_names=objective_names,
             default_min_bandwidth_factor=default_min_bandwidth_factor,
-            lower_is_better=lower_is_better,
+            larger_is_better_objectives=larger_is_better_objectives,
             n_resamples=n_resamples,
         )
         promising_pdfs = self._validate_input_and_promising_pdfs(observations_set, promising_pdfs)

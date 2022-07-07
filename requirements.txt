@@ -1,3 +1,4 @@
 parzen-estimator
 numpy
 ConfigSpace
+fast-pareto

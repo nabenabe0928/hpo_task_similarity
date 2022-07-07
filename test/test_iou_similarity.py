@@ -10,10 +10,29 @@ import numpy as np
 from task_similarity import IoUTaskSimilarity
 from task_similarity.iou_similarity import (
     _IoUTaskSimilarityParameters,
+    _calculate_order,
     _get_hypervolume,
     _get_promising_pdf,
     _get_promising_pdfs,
 )
+
+
+def test_calculate_order() -> None:
+    observations = {"f1": np.array([0, 1, 2, 1]), "f2": np.array([0, 1, 2, 0])}
+    order = _calculate_order(
+        observations=observations,
+        objective_names=["f1", "f2"],
+        larger_is_better_objectives=None,
+    )
+    assert np.allclose(order, [0, 3, 1, 2])
+
+    observations = {"f1": np.array([0, 1, 2, 1]), "f2": -np.array([0, 1, 2, 0])}
+    order = _calculate_order(
+        observations=observations,
+        objective_names=["f1", "f2"],
+        larger_is_better_objectives=[1],
+    )
+    assert np.allclose(order, [0, 3, 1, 2])
 
 
 def get_random_config(n_configs: int = 10) -> Tuple[CS.ConfigurationSpace, Dict[str, np.ndarray]]:
@@ -50,9 +69,9 @@ def test_get_promising_pdf_with_resampling() -> None:
         n_samples=10,
         config_space=config_space,
         promising_quantile=0.1,
-        objective_name="loss",
+        objective_names=[loss_metric],
         default_min_bandwidth_factor=0.1,
-        lower_is_better=True,
+        larger_is_better_objectives=None,
         rng=np.random.RandomState(),
         n_resamples=n_resamples,
     )
@@ -74,9 +93,9 @@ def test_get_promising_pdf() -> None:
                 n_samples=10,
                 config_space=config_space,
                 promising_quantile=quantile,
-                objective_name=loss_metric,
+                objective_names=[loss_metric],
                 default_min_bandwidth_factor=0.1,
-                lower_is_better=lower_is_better,
+                larger_is_better_objectives=None if lower_is_better else [0],
                 rng=np.random.RandomState(),
                 n_resamples=None,
             )
@@ -100,9 +119,9 @@ def test_get_promising_pdfs() -> None:
         n_samples=10,
         config_space=config_space,
         promising_quantile=0.1,
-        objective_name=loss_metric,
+        objective_names=[loss_metric],
         default_min_bandwidth_factor=0.1,
-        lower_is_better=True,
+        larger_is_better_objectives=None,
         rng=np.random.RandomState(),
         n_resamples=None,
     )
@@ -182,7 +201,7 @@ class TestIoUTaskSimilarity(unittest.TestCase):
             n_samples=n_samples,
             config_space=config_space,
             observations_set=[configs1, configs2],
-            objective_name=loss_metric,
+            objective_names=[loss_metric],
         )
         assert np.allclose(ts.compute(), np.identity(2))
 
