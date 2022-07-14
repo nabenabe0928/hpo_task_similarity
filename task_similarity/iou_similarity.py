@@ -6,7 +6,7 @@ from fast_pareto import nondominated_rank
 
 import numpy as np
 
-from parzen_estimator import MultiVariateParzenEstimator, get_multivar_pdf, over_resample
+from parzen_estimator import MultiVariateParzenEstimator, ParzenEstimatorType, get_multivar_pdf, over_resample
 
 
 class _IoUTaskSimilarityParameters(NamedTuple):
@@ -29,16 +29,20 @@ class _IoUTaskSimilarityParameters(NamedTuple):
         n_resamples (Optional[int]):
             How many resamplings we use for the parzen estimator.
             If None, we do not use resampling.
+        dim_reduction_rate (Optional[float]):
+            The ratio of dimension reduction.
+            If None, we do not apply dimension reduction.
     """
 
     n_samples: int
     config_space: CS.ConfigurationSpace
     promising_quantile: float
-    rng: Optional[np.random.RandomState]
+    rng: np.random.RandomState
     objective_names: List[str]
     default_min_bandwidth_factor: float
     larger_is_better_objectives: Optional[List[int]]
     n_resamples: Optional[int]
+    dim_reduction_rate: Optional[float]
 
 
 def _calculate_order(
@@ -186,6 +190,7 @@ class IoUTaskSimilarity:
         default_min_bandwidth_factor: float = 1e-1,
         larger_is_better_objectives: Optional[List[int]] = None,
         n_resamples: Optional[int] = None,
+        dim_reduction_rate: Optional[float] = None,
     ):
         """
         Attributes:
@@ -201,22 +206,78 @@ class IoUTaskSimilarity:
             n_samples=n_samples,
             config_space=config_space,
             promising_quantile=promising_quantile,
-            rng=rng,
+            rng=rng if rng else np.random.RandomState(),
             objective_names=objective_names,
             default_min_bandwidth_factor=default_min_bandwidth_factor,
             larger_is_better_objectives=larger_is_better_objectives,
             n_resamples=n_resamples,
+            dim_reduction_rate=dim_reduction_rate,
         )
         promising_pdfs = self._validate_input_and_promising_pdfs(observations_set, promising_pdfs)
         assert promising_pdfs is not None  # mypy re-definition
-        self._hypervolume = _get_hypervolume(config_space)
+        promising_pdfs = self._reduce_dimension(promising_pdfs)
+        self._hypervolume = _get_hypervolume(self._params.config_space)
         self._parzen_estimators = promising_pdfs
-        self._samples = promising_pdfs[0].uniform_sample(n_samples, rng=rng if rng else np.random.RandomState())
+        self._samples = promising_pdfs[0].uniform_sample(n_samples, rng=self._params.rng)
         self._n_tasks = len(promising_pdfs)
         self._promising_quantile = promising_quantile
         self._negative_log_promising_pdf_vals: np.ndarray
         self._promising_pdf_vals: Optional[np.ndarray] = None
         self._promising_indices = self._compute_promising_indices()
+
+    def _compute_importance(
+        self,
+        promising_pdfs: List[MultiVariateParzenEstimator],
+    ) -> Dict[str, float]:
+        samples = promising_pdfs[0].uniform_sample(n_samples=1 << 6, rng=self._params.rng)
+        pdf_vals_dict = promising_pdfs[0].dimension_wise_pdf(X=samples, return_dict=True)
+        hp_importance: Dict[str, float] = {}
+        for hp_name, pdf_vals in pdf_vals_dict.items():
+            L = promising_pdfs[0]._parzen_estimators[hp_name].domain_size
+            hp_importance[hp_name] = np.mean((pdf_vals - 1 / L) ** 2) * (L**2)
+
+        return hp_importance
+
+    def _select_dimensions(
+        self,
+        hp_importance: Dict[str, float],
+        promising_pdfs: List[MultiVariateParzenEstimator],
+    ) -> CS.ConfigurationSpace:
+        assert self._params.dim_reduction_rate is not None  # mypy redefinition
+        new_config_space = CS.ConfigurationSpace()
+        hp_importance = {k: v for k, v in sorted(hp_importance.items(), key=lambda item: -item[1])}
+        cur, total, n_tasks = 0.0, sum(hp_importance.values()), len(promising_pdfs)
+
+        config_space = self._params.config_space
+        parzen_estimators_list: List[Dict[str, ParzenEstimatorType]] = [{} for _ in range(n_tasks)]
+        for hp_name, imp in hp_importance.items():
+            cur += imp
+            new_config_space.add_hyperparameter(config_space.get_hyperparameter(hp_name))
+            for i in range(n_tasks):
+                parzen_estimators_list[i][hp_name] = promising_pdfs[i]._parzen_estimators[hp_name]
+
+            if cur / total > self._params.dim_reduction_rate:
+                break
+
+        promising_pdfs = [
+            MultiVariateParzenEstimator(parzen_estimators) for parzen_estimators in parzen_estimators_list
+        ]
+
+        self._params = self._params._replace(config_space=new_config_space)
+        return promising_pdfs
+
+    def _reduce_dimension(
+        self,
+        promising_pdfs: List[MultiVariateParzenEstimator],
+    ) -> List[MultiVariateParzenEstimator]:
+        if self._params.dim_reduction_rate is None:
+            return promising_pdfs
+        if self._params.dim_reduction_rate > 1 or self._params.dim_reduction_rate < 0:
+            raise ValueError(f"dim_reduction must be in [0, 1], but got {self._params.dim_reduction_rate}")
+
+        hp_importance = self._compute_importance(promising_pdfs)
+        promising_pdfs = self._select_dimensions(hp_importance, promising_pdfs)
+        return promising_pdfs
 
     def _validate_input_and_promising_pdfs(
         self,

@@ -74,6 +74,7 @@ def test_get_promising_pdf_with_resampling() -> None:
         larger_is_better_objectives=None,
         rng=np.random.RandomState(),
         n_resamples=n_resamples,
+        dim_reduction_rate=None,
     )
     pdf = _get_promising_pdf(observations=configs, params=params)
     assert pdf.size == n_resamples
@@ -98,6 +99,7 @@ def test_get_promising_pdf() -> None:
                 larger_is_better_objectives=None if lower_is_better else [0],
                 rng=np.random.RandomState(),
                 n_resamples=None,
+                dim_reduction_rate=None,
             )
             pdf = _get_promising_pdf(observations=configs, params=params)
             n_promisings = int(n_configs * quantile)
@@ -124,6 +126,7 @@ def test_get_promising_pdfs() -> None:
         larger_is_better_objectives=None,
         rng=np.random.RandomState(),
         n_resamples=None,
+        dim_reduction_rate=None,
     )
     n_pdfs = 3
     pdfs = _get_promising_pdfs(observations_set=[configs] * n_pdfs, params=params)
