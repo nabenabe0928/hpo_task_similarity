@@ -31,7 +31,12 @@ class _IoUTaskSimilarityParameters(NamedTuple):
             If None, we do not use resampling.
         dim_reduction_rate (Optional[float]):
             The ratio of dimension reduction.
-            If None, we do not apply dimension reduction.
+            If both dim_reduction_rate and max_dim are None,
+            we do not apply dimension reduction.
+        max_dim (Optional[int]):
+            The maximum dimension size.
+            If both dim_reduction_rate and max_dim are None,
+            we do not apply dimension reduction.
     """
 
     n_samples: int
@@ -43,6 +48,7 @@ class _IoUTaskSimilarityParameters(NamedTuple):
     larger_is_better_objectives: Optional[List[int]]
     n_resamples: Optional[int]
     dim_reduction_rate: Optional[float]
+    max_dim: Optional[int]
 
 
 def _calculate_order(
@@ -191,6 +197,7 @@ class IoUTaskSimilarity:
         larger_is_better_objectives: Optional[List[int]] = None,
         n_resamples: Optional[int] = None,
         dim_reduction_rate: Optional[float] = None,
+        max_dim: Optional[int] = None,
     ):
         """
         Attributes:
@@ -206,12 +213,13 @@ class IoUTaskSimilarity:
             n_samples=n_samples,
             config_space=config_space,
             promising_quantile=promising_quantile,
-            rng=rng if rng else np.random.RandomState(),
+            rng=rng if rng is not None else np.random.RandomState(),
             objective_names=objective_names,
             default_min_bandwidth_factor=default_min_bandwidth_factor,
             larger_is_better_objectives=larger_is_better_objectives,
             n_resamples=n_resamples,
             dim_reduction_rate=dim_reduction_rate,
+            max_dim=max_dim,
         )
         promising_pdfs = self._validate_input_and_promising_pdfs(observations_set, promising_pdfs)
         assert promising_pdfs is not None  # mypy re-definition
@@ -243,20 +251,22 @@ class IoUTaskSimilarity:
         hp_importance: Dict[str, float],
         promising_pdfs: List[MultiVariateParzenEstimator],
     ) -> CS.ConfigurationSpace:
-        assert self._params.dim_reduction_rate is not None  # mypy redefinition
+        dim_reduction_rate = self._params.dim_reduction_rate if self._params.dim_reduction_rate is not None else 1.0
+        max_dim = self._params.max_dim if self._params.max_dim is not None else len(hp_importance)
+
         new_config_space = CS.ConfigurationSpace()
         hp_importance = {k: v for k, v in sorted(hp_importance.items(), key=lambda item: -item[1])}
         cur, total, n_tasks = 0.0, sum(hp_importance.values()), len(promising_pdfs)
 
         config_space = self._params.config_space
         parzen_estimators_list: List[Dict[str, ParzenEstimatorType]] = [{} for _ in range(n_tasks)]
-        for hp_name, imp in hp_importance.items():
+        for dim, (hp_name, imp) in enumerate(hp_importance.items(), start=1):
             cur += imp
             new_config_space.add_hyperparameter(config_space.get_hyperparameter(hp_name))
             for i in range(n_tasks):
                 parzen_estimators_list[i][hp_name] = promising_pdfs[i]._parzen_estimators[hp_name]
 
-            if cur / total > self._params.dim_reduction_rate:
+            if dim >= max_dim or cur / total > dim_reduction_rate:
                 break
 
         promising_pdfs = [
@@ -270,10 +280,14 @@ class IoUTaskSimilarity:
         self,
         promising_pdfs: List[MultiVariateParzenEstimator],
     ) -> List[MultiVariateParzenEstimator]:
-        if self._params.dim_reduction_rate is None:
+        dim_reduction_rate, max_dim = self._params.dim_reduction_rate, self._params.max_dim
+        D = len(promising_pdfs[0])
+        if dim_reduction_rate is None and max_dim is None:
             return promising_pdfs
-        if self._params.dim_reduction_rate > 1 or self._params.dim_reduction_rate < 0:
-            raise ValueError(f"dim_reduction must be in [0, 1], but got {self._params.dim_reduction_rate}")
+        if dim_reduction_rate is not None and (dim_reduction_rate > 1 or dim_reduction_rate < 0):
+            raise ValueError(f"dim_reduction must be in [0, 1], but got {dim_reduction_rate}")
+        if max_dim is not None and (max_dim < 1 or max_dim > D):
+            raise ValueError(f"max_dim must be in [1, {D}], but got {max_dim}")
 
         hp_importance = self._compute_importance(promising_pdfs)
         promising_pdfs = self._select_dimensions(hp_importance, promising_pdfs)
