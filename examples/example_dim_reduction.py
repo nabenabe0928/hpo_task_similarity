@@ -9,7 +9,7 @@ import numpy as np
 
 
 weights = 1.0 / 10 ** np.arange(30)
-SHIFTS = [0, 0, 2, 4]
+SHIFTS = [0, 0, 1, 2, 3]
 
 
 def func(X: np.ndarray, shift: int):
@@ -42,6 +42,7 @@ def main(
         observations_set=observations_set,
         max_dim=max_dim,
         promising_quantile=0.15,
+        default_min_bandwidth_factor=1e-2,
         rng=np.random.RandomState(seed)
     )
     return ts.compute(method="total_variation", task_pairs=[(0, i) for i in range(1, len(SHIFTS))])[0][1:]
@@ -59,13 +60,14 @@ if __name__ == "__main__":
     plt.rcParams['mathtext.fontset'] = 'stix'  # The setting of math font
 
     R, D, S = 5, 20, 10
+    n_evals = 20
     means = {shift: np.zeros(D) for shift in SHIFTS[1:]}
     stes = {shift: np.zeros(D) for shift in SHIFTS[1:]}
     for max_dim in range(1, D + 1):
         print(f"max_dim: {max_dim}")
         data = np.zeros((len(SHIFTS) - 1, S))
         for seed in range(S):
-            data[:, seed] += main(dim=D, rad=R, seed=seed, max_dim=max_dim, n_evals=1000)
+            data[:, seed] += main(dim=D, rad=R, seed=seed, max_dim=max_dim, n_evals=n_evals)
 
         print(data.mean(axis=-1))
         for i, shift in enumerate(SHIFTS[1:]):
@@ -78,11 +80,12 @@ if __name__ == "__main__":
     ax.set_xlabel("Dimension $d^\\prime$ after the reduction")
     ax.set_ylabel("Similarity $\\hat{s}$")
     ax.set_ylim(0, 1)
-    for i, shift in enumerate(SHIFTS[1:]):
+    colors = ["orange", "red", "purple", "blue"]
+    for i, (shift, color) in enumerate(zip(SHIFTS[1:], colors)):
         m, s = means[shift], stes[shift]
         print(m - s, m, m + s)
-        ax.plot(dx, m, label=f"Shift = {shift}")
-        ax.fill_between(dx, m - s, m + s, alpha=0.2)
+        ax.plot(dx, m, label=f"Shift = {shift}", color=color)
+        ax.fill_between(dx, m - s, m + s, alpha=0.2, color=color)
 
     ax.grid()
     ax.legend()
