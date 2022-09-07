@@ -25,14 +25,6 @@ class _IoUTaskSimilarityParameters(NamedTuple):
         n_resamples (Optional[int]):
             How many resamplings we use for the parzen estimator.
             If None, we do not use resampling.
-        dim_reduction_rate (Optional[float]):
-            The ratio of dimension reduction.
-            If both dim_reduction_rate and max_dim are None,
-            we do not apply dimension reduction.
-        max_dim (Optional[int]):
-            The maximum dimension size.
-            If both dim_reduction_rate and max_dim are None,
-            we do not apply dimension reduction.
     """
 
     n_samples: int
@@ -43,5 +35,3 @@ class _IoUTaskSimilarityParameters(NamedTuple):
     default_min_bandwidth_factor: float
     larger_is_better_objectives: Optional[List[int]]
     n_resamples: Optional[int]
-    dim_reduction_rate: Optional[float]
-    max_dim: Optional[int]

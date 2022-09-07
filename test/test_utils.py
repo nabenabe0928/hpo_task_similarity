@@ -6,7 +6,6 @@ import ConfigSpace.hyperparameters as CSH
 import numpy as np
 
 from task_similarity.constants import _IoUTaskSimilarityParameters
-from task_similarity.iou_similarity import IoUTaskSimilarity
 from task_similarity.utils import (
     _calculate_order,
     _get_hypervolume,
@@ -72,8 +71,6 @@ def test_get_promising_pdf_with_resampling() -> None:
         larger_is_better_objectives=None,
         rng=np.random.RandomState(),
         n_resamples=n_resamples,
-        dim_reduction_rate=None,
-        max_dim=None,
     )
     pdf = _get_promising_pdf(observations=configs, params=params)
     assert pdf.size == n_resamples
@@ -98,8 +95,6 @@ def test_get_promising_pdf() -> None:
                 larger_is_better_objectives=None if lower_is_better else [0],
                 rng=np.random.RandomState(),
                 n_resamples=None,
-                dim_reduction_rate=None,
-                max_dim=None,
             )
             pdf = _get_promising_pdf(observations=configs, params=params)
             n_promisings = int(n_configs * quantile)
@@ -126,11 +121,7 @@ def test_get_promising_pdfs() -> None:
         larger_is_better_objectives=None,
         rng=np.random.RandomState(),
         n_resamples=None,
-        dim_reduction_rate=None,
-        max_dim=None,
     )
     n_pdfs = 3
     pdfs = _get_promising_pdfs(observations_set=[configs] * n_pdfs, params=params)
-    IoUTaskSimilarity(n_samples=10, config_space=config_space, promising_pdfs=pdfs)
-
     assert len(pdfs) == n_pdfs

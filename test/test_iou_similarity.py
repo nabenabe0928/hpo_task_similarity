@@ -38,9 +38,6 @@ class TestIoUTaskSimilarity(unittest.TestCase):
                     n_samples, config_space, promising_quantile=promising_quantile, observations_set=[configs]
                 )
 
-        with pytest.raises(ValueError):
-            IoUTaskSimilarity(n_samples, config_space)
-
         IoUTaskSimilarity(n_samples, config_space, observations_set=[configs])
 
     def test_compute_promising_indices(self) -> None:

@@ -4,9 +4,10 @@ import ConfigSpace as CS
 
 import numpy as np
 
-from parzen_estimator import MultiVariateParzenEstimator, ParzenEstimatorType
+from parzen_estimator import MultiVariateParzenEstimator
 
 from task_similarity.constants import _IoUTaskSimilarityParameters
+from task_similarity.parameter_selection import compute_importance, reduce_dimension
 from task_similarity.utils import _get_hypervolume, _get_promising_pdfs
 
 
@@ -29,12 +30,10 @@ class IoUTaskSimilarity:
         n_resamples (Optional[int]):
             The number of over-resampling for promising distributions.
             If None, we do not over-resample.
-        Either of the following must be not None:
-            promising_pdfs (Optional[List[MultiVariateParzenEstimator]]):
-                The promising probability density functions (PDFs) for each task.
-                Each PDF must be built by MultiVariateParzenEstimator.
-            observations_set (Optional[List[Dict[str, np.ndarray]]]):
-                The observations for each task.
+        source_task_hp_importance (Optional[Dict[str, np.ndarray]]):
+            The hyperparameter importances in source tasks.
+        observations_set (Optional[List[Dict[str, np.ndarray]]]):
+            The observations for each task.
     """
 
     _method_choices = ["top_set", "total_variation"]
@@ -43,17 +42,16 @@ class IoUTaskSimilarity:
         self,
         n_samples: int,
         config_space: CS.ConfigurationSpace,
+        observations_set: List[Dict[str, np.ndarray]],
         *,
         promising_quantile: float = 0.1,
-        observations_set: Optional[List[Dict[str, np.ndarray]]] = None,
-        promising_pdfs: Optional[List[MultiVariateParzenEstimator]] = None,
         rng: Optional[np.random.RandomState] = None,
         objective_names: List[str] = ["loss"],
         default_min_bandwidth_factor: float = 1e-1,
         larger_is_better_objectives: Optional[List[int]] = None,
         n_resamples: Optional[int] = None,
-        dim_reduction_rate: Optional[float] = None,
-        max_dim: Optional[int] = None,
+        source_task_hp_importance: Optional[Dict[str, np.ndarray]] = None,
+        dim_reduction_factor: float = 5.0,
     ):
         """
         Attributes:
@@ -74,17 +72,28 @@ class IoUTaskSimilarity:
             default_min_bandwidth_factor=default_min_bandwidth_factor,
             larger_is_better_objectives=larger_is_better_objectives,
             n_resamples=n_resamples,
-            dim_reduction_rate=dim_reduction_rate,
-            max_dim=max_dim,
+            # dim_reduction_factor=dim_reduction_factor,
         )
-        promising_pdfs = self._validate_input_and_promising_pdfs(observations_set, promising_pdfs)
-        assert promising_pdfs is not None  # mypy re-definition
-        promising_pdfs = self._reduce_dimension(promising_pdfs)
+
+        self._source_task_hp_importance: Optional[Dict[str, np.ndarray]] = None
+        self._n_tasks: int
+        promising_pdfs = self._reduce_dimension(
+            observations_set=observations_set,
+            source_task_hp_importance=source_task_hp_importance,
+        )
+        self._is_sufficient_samples = bool(len(promising_pdfs) > 0)
+        if self._is_sufficient_samples:
+            self._init_variables(promising_pdfs)
+
+    def _init_variables(
+        self,
+        promising_pdfs: List[MultiVariateParzenEstimator],
+    ) -> None:
+        # Define after the dimension reduction
         self._hypervolume = _get_hypervolume(self._params.config_space)
         self._parzen_estimators = promising_pdfs
-        self._samples = promising_pdfs[0].uniform_sample(n_samples, rng=self._params.rng)
-        self._n_tasks = len(promising_pdfs)
-        self._promising_quantile = promising_quantile
+        self._samples = promising_pdfs[0].uniform_sample(self._params.n_samples, rng=self._params.rng)
+        self._promising_quantile = self._params.promising_quantile
         self._negative_log_promising_pdf_vals: np.ndarray
         self._promising_pdf_vals: Optional[np.ndarray] = None
         self._promising_indices = self._compute_promising_indices()
@@ -92,85 +101,71 @@ class IoUTaskSimilarity:
     def _compute_importance(
         self,
         promising_pdfs: List[MultiVariateParzenEstimator],
-    ) -> Dict[str, float]:
-        samples = promising_pdfs[0].uniform_sample(n_samples=1 << 6, rng=self._params.rng)
-        pdf_vals_dict = promising_pdfs[0].dimension_wise_pdf(X=samples, return_dict=True)
-        hp_importance: Dict[str, float] = {}
-        for hp_name, pdf_vals in pdf_vals_dict.items():
-            L = promising_pdfs[0]._parzen_estimators[hp_name].domain_size
-            hp_importance[hp_name] = np.mean((pdf_vals - 1 / L) ** 2) * (L**2)
+        source_task_hp_importance: Optional[Dict[str, np.ndarray]],
+    ) -> Dict[str, np.ndarray]:
 
+        if source_task_hp_importance is None:
+            hp_imp = compute_importance(promising_pdfs=promising_pdfs, params=self._params)
+            source_task_hp_importance = {hp_name: imp[1:] for hp_name, imp in hp_imp.items()}
+        else:
+            hp_imp = compute_importance(promising_pdfs=[promising_pdfs[0]], params=self._params)
+
+        self._source_task_hp_importance = source_task_hp_importance
+
+        w = 1.0 / self._n_tasks
+        hp_importance = {
+            hp_name: w * imp[0] + (1 - w) * np.sum(source_task_hp_importance[hp_name])
+            for hp_name, imp in hp_imp.items()
+        }
         return hp_importance
-
-    def _select_dimensions(
-        self,
-        hp_importance: Dict[str, float],
-        promising_pdfs: List[MultiVariateParzenEstimator],
-    ) -> CS.ConfigurationSpace:
-        dim_reduction_rate = self._params.dim_reduction_rate if self._params.dim_reduction_rate is not None else 1.0
-        max_dim = self._params.max_dim if self._params.max_dim is not None else len(hp_importance)
-
-        new_config_space = CS.ConfigurationSpace()
-        hp_importance = {k: v for k, v in sorted(hp_importance.items(), key=lambda item: -item[1])}
-        cur, total, n_tasks = 0.0, sum(hp_importance.values()), len(promising_pdfs)
-
-        config_space = self._params.config_space
-        parzen_estimators_list: List[Dict[str, ParzenEstimatorType]] = [{} for _ in range(n_tasks)]
-        for dim, (hp_name, imp) in enumerate(hp_importance.items(), start=1):
-            cur += imp
-            new_config_space.add_hyperparameter(config_space.get_hyperparameter(hp_name))
-            for i in range(n_tasks):
-                parzen_estimators_list[i][hp_name] = promising_pdfs[i]._parzen_estimators[hp_name]
-
-            if dim >= max_dim or cur / total > dim_reduction_rate:
-                break
-
-        promising_pdfs = [
-            MultiVariateParzenEstimator(parzen_estimators) for parzen_estimators in parzen_estimators_list
-        ]
-
-        self._params = self._params._replace(config_space=new_config_space)
-        return promising_pdfs
 
     def _reduce_dimension(
         self,
-        promising_pdfs: List[MultiVariateParzenEstimator],
+        observations_set: List[Dict[str, np.ndarray]],
+        source_task_hp_importance: Optional[Dict[str, np.ndarray]],
     ) -> List[MultiVariateParzenEstimator]:
-        dim_reduction_rate, max_dim = self._params.dim_reduction_rate, self._params.max_dim
-        D = len(promising_pdfs[0])
-        if dim_reduction_rate is None and max_dim is None:
-            return promising_pdfs
-        if dim_reduction_rate is not None and (dim_reduction_rate > 1 or dim_reduction_rate < 0):
-            raise ValueError(f"dim_reduction must be in [0, 1], but got {dim_reduction_rate}")
-        if max_dim is not None and (max_dim < 1 or max_dim > D):
-            raise ValueError(f"max_dim must be in [1, {D}], but got {max_dim}")
 
-        hp_importance = self._compute_importance(promising_pdfs)
-        promising_pdfs = self._select_dimensions(hp_importance, promising_pdfs)
-        return promising_pdfs
+        promising_pdfs = self._validate_input_and_promising_pdfs(observations_set)
+        assert promising_pdfs is not None  # mypy re-definition
+        self._n_tasks = len(promising_pdfs)
+
+        hp_importance = self._compute_importance(
+            promising_pdfs=promising_pdfs,
+            source_task_hp_importance=source_task_hp_importance,
+        )
+        n_observations = observations_set[0][list(hp_importance.keys())[0]].size
+        new_promising_pdfs, new_config_space = reduce_dimension(
+            hp_importance=hp_importance,
+            dim_after=int(np.log(n_observations) / np.log(5)),  # TODO
+            config_space=self._params.config_space,
+            promising_pdfs=promising_pdfs,
+        )
+        self._params = self._params._replace(config_space=new_config_space)
+        return new_promising_pdfs
 
     def _validate_input_and_promising_pdfs(
         self,
-        observations_set: Optional[List[Dict[str, np.ndarray]]],
-        promising_pdfs: Optional[List[MultiVariateParzenEstimator]],
+        observations_set: List[Dict[str, np.ndarray]],
     ) -> List[MultiVariateParzenEstimator]:
         promising_quantile = self._params.promising_quantile
         if promising_quantile < 0 or promising_quantile > 1:
             raise ValueError(f"The quantile for the promising domain must be in [0, 1], but got {promising_quantile}")
-        if observations_set is None and promising_pdfs is None:
-            raise ValueError("Either observations_set or promising_pdfs must be provided.")
 
-        if promising_pdfs is not None:  # it is redundant, but needed for mypy redefinition
-            promising_pdfs = promising_pdfs
-        else:
-            assert observations_set is not None
-            promising_pdfs = _get_promising_pdfs(observations_set, self._params)
+        assert observations_set is not None
+        promising_pdfs = _get_promising_pdfs(observations_set, self._params)
 
         return promising_pdfs
 
     @property
     def method_choices(self) -> List[str]:
         return self._method_choices[:]
+
+    @property
+    def source_task_hp_importance(self) -> Optional[Dict[str, np.ndarray]]:
+        if self._source_task_hp_importance is None:
+            return None
+
+        return {k: v.copy() for k, v in self._source_task_hp_importance.items()}
 
     def _compute_promising_indices(self) -> np.ndarray:
         """
@@ -208,6 +203,9 @@ class IoUTaskSimilarity:
             task_similarity (float):
                 Task similarity estimated via the IoU of the promising sets.
         """
+        if not self._is_sufficient_samples:
+            return 1.0
+
         idx1, idx2 = self._promising_indices[task1_id], self._promising_indices[task2_id]
         n_intersect = np.sum(np.in1d(idx1, idx2, assume_unique=True))
         return n_intersect / (idx1.size + idx2.size - n_intersect)
@@ -226,6 +224,9 @@ class IoUTaskSimilarity:
             task_similarity (float):
                 Task similarity estimated via the total variation distance.
         """
+        if not self._is_sufficient_samples:
+            return 1.0
+
         if self._promising_pdf_vals is None:
             self._promising_pdf_vals = np.exp(-self._negative_log_promising_pdf_vals)
         else:  # it is redundant, but needed for mypy redefinition
