@@ -24,9 +24,7 @@ def get_observations(shift: int, dim: int, rad: int, n_evals: int, rng: np.rando
     return ob
 
 
-def main(
-    dim: int, rad: int, seed: int, max_dim: int, n_evals: int
-) -> np.ndarray:
+def main(dim: int, rad: int, seed: int, max_dim: int, n_evals: int) -> np.ndarray:
     config_space = CS.ConfigurationSpace()
     for d in range(dim):
         config_space.add_hyperparameter(CSH.UniformFloatHyperparameter(f"x{d}", -rad, rad))
@@ -40,10 +38,10 @@ def main(
         n_samples=1 << 10,
         config_space=config_space,
         observations_set=observations_set,
-        max_dim=max_dim,
+        # max_dim=max_dim,
         promising_quantile=0.15,
         default_min_bandwidth_factor=1e-2,
-        rng=np.random.RandomState(seed)
+        rng=np.random.RandomState(seed),
     )
     return ts.compute(method="total_variation", task_pairs=[(0, i) for i in range(1, len(SHIFTS))])[0][1:]
 
@@ -57,7 +55,7 @@ if __name__ == "__main__":
     """
     plt.rcParams["font.family"] = "Times New Roman"
     plt.rcParams["font.size"] = 24
-    plt.rcParams['mathtext.fontset'] = 'stix'  # The setting of math font
+    plt.rcParams["mathtext.fontset"] = "stix"  # The setting of math font
 
     R, D, S = 5, 20, 10
     n_evals = 20
@@ -91,5 +89,5 @@ if __name__ == "__main__":
     ax.legend()
 
     os.makedirs("figs/", exist_ok=True)
-    plt.savefig("figs/dimension_reduction_demo.pdf", bbox_inches='tight')
-    # plt.show()
+    # plt.savefig("figs/dimension_reduction_demo.pdf", bbox_inches='tight')
+    plt.show()

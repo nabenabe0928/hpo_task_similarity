@@ -78,7 +78,7 @@ class IoUTaskSimilarity:
             dim_reduction_factor=dim_reduction_factor,
         )
 
-        self._source_task_hp_importance: Optional[Dict[str, np.ndarray]] = None
+        self._source_task_hp_importance: Dict[str, np.ndarray]
         self._n_tasks: int
         promising_pdfs = self._reduce_dimension(
             observations_set=observations_set,
@@ -137,9 +137,14 @@ class IoUTaskSimilarity:
             source_task_hp_importance=source_task_hp_importance,
         )
         n_observations = observations_set[0][list(hp_importance.keys())[0]].size
+        if self._params.dim_reduction_factor == 1:
+            dim_after = 0
+        else:
+            dim_after = min(int(np.log(n_observations) / np.log(self._params.dim_reduction_factor)), len(hp_importance))
+
         new_promising_pdfs, new_config_space = reduce_dimension(
             hp_importance=hp_importance,
-            dim_after=int(np.log(n_observations) / np.log(self._params.dim_reduction_factor)),
+            dim_after=dim_after,
             config_space=self._params.config_space,
             promising_pdfs=promising_pdfs,
         )
@@ -153,6 +158,9 @@ class IoUTaskSimilarity:
         promising_quantile = self._params.promising_quantile
         if promising_quantile < 0 or promising_quantile > 1:
             raise ValueError(f"The quantile for the promising domain must be in [0, 1], but got {promising_quantile}")
+        if self._params.dim_reduction_factor < 1:
+            val = self._params.dim_reduction_factor
+            raise ValueError(f"dim_reduction_factor must be larger than or equal to 1, but got {val}")
 
         assert observations_set is not None
         promising_pdfs = _get_promising_pdfs(observations_set, self._params)
@@ -164,10 +172,7 @@ class IoUTaskSimilarity:
         return self._method_choices[:]
 
     @property
-    def source_task_hp_importance(self) -> Optional[Dict[str, np.ndarray]]:
-        if self._source_task_hp_importance is None:
-            return None
-
+    def source_task_hp_importance(self) -> Dict[str, np.ndarray]:
         return {k: v.copy() for k, v in self._source_task_hp_importance.items()}
 
     def _compute_promising_indices(self) -> np.ndarray:

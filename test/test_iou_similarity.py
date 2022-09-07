@@ -48,6 +48,53 @@ class TestIoUTaskSimilarity(unittest.TestCase):
         ts = IoUTaskSimilarity(n_samples, config_space, observations_set=[configs])
         assert ts._promising_indices.size == n_samples * ts._promising_quantile
 
+    def test_reduced_size(self) -> None:
+        for n_configs in [1, 10, 100, 1000]:
+            config_space, configs = get_random_config(n_configs=n_configs)
+            configs["loss"] = np.arange(n_configs)
+            for eta in [0.5, 1, 2, 3, 5, 10]:
+                if eta < 1:
+                    with pytest.raises(ValueError):
+                        ts = IoUTaskSimilarity(
+                            n_samples=10,
+                            config_space=config_space,
+                            observations_set=[configs],
+                            dim_reduction_factor=eta,
+                        )
+                else:
+                    ts = IoUTaskSimilarity(
+                        n_samples=10,
+                        config_space=config_space,
+                        observations_set=[configs],
+                        dim_reduction_factor=eta,
+                    )
+                    if eta != 1:
+                        ans = min(len(config_space), int(np.log(n_configs) / np.log(eta)))
+                        assert len(ts._params.config_space) == ans
+                    else:
+                        assert len(ts._params.config_space) == 0
+
+    def test_compute_importance(self) -> None:
+        n_configs = 10
+        config_space, configs = get_random_config(n_configs=n_configs)
+        n_samples = 10
+        configs["loss"] = np.arange(n_configs)
+        print(configs)
+        src_hp_imp = {
+            "x0": np.array([0.1]),
+            "x1": np.array([0.2]),
+            "x2": np.array([0.3]),
+            "x3": np.array([0.4]),
+        }
+        ts = IoUTaskSimilarity(
+            n_samples, config_space, observations_set=[configs, configs], source_task_hp_importance=src_hp_imp
+        )
+        for k, v in src_hp_imp.items():
+            np.all(ts.source_task_hp_importance[k] == v)
+
+        ts = IoUTaskSimilarity(n_samples, config_space, observations_set=[configs, configs])
+        assert all(k in ts.source_task_hp_importance for k in src_hp_imp)
+
     def test_compute_task_similarity(self) -> None:
         n_configs = 10
         config_space, configs = get_random_config(n_configs=n_configs)
@@ -61,6 +108,25 @@ class TestIoUTaskSimilarity(unittest.TestCase):
             assert ts._compute_task_similarity(task1_id=0, task2_id=1, method=choice) == 1.0
 
         ts._compute_task_similarity_by_total_variation(task1_id=0, task2_id=1)
+
+        for n_configs in [3, 20]:
+            observations_set = []
+            config_space, configs = get_random_config(n_configs=n_configs)
+            configs["loss"] = np.arange(n_configs)
+            observations_set.append(configs)
+            _, configs = get_random_config(n_configs=n_configs)
+            configs["loss"] = np.arange(n_configs)
+            observations_set.append(configs)
+            rng = np.random.RandomState(0)
+            ts = IoUTaskSimilarity(
+                n_samples=n_samples, config_space=config_space, observations_set=observations_set, rng=rng
+            )
+
+            for choice in ts.method_choices:
+                if n_configs < 5:  # not sufficient number of observations
+                    assert ts._compute_task_similarity(task1_id=0, task2_id=1, method=choice) == 1.0
+                else:
+                    assert ts._compute_task_similarity(task1_id=0, task2_id=1, method=choice) < 1.0
 
     def test_compute(self) -> None:
         n_configs = 10
