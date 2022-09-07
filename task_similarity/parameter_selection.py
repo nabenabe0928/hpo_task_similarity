@@ -6,17 +6,15 @@ import numpy as np
 
 from parzen_estimator import MultiVariateParzenEstimator, ParzenEstimatorType
 
-from task_similarity.constants import _IoUTaskSimilarityParameters
-
 
 def compute_importance(
     promising_pdfs: List[MultiVariateParzenEstimator],
-    params: _IoUTaskSimilarityParameters,
+    rng: np.random.RandomState,
 ) -> Dict[str, np.ndarray]:
 
     pdf_vals_dict: Dict[str, List[np.ndarray]] = {hp_name: [] for hp_name in promising_pdfs[0].param_names}
     for pdf in promising_pdfs:
-        samples = pdf.uniform_sample(n_samples=1 << 6, rng=params.rng, return_dict=True)
+        samples = pdf.uniform_sample(n_samples=1 << 8, rng=rng, return_dict=True)
         pdf_vals = pdf.dimension_wise_pdf(X=samples, return_dict=True)
         for hp_name, pdf_val in pdf_vals.items():
             pdf_vals_dict[hp_name].append(pdf_val)

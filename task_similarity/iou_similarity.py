@@ -108,10 +108,10 @@ class IoUTaskSimilarity:
     ) -> Dict[str, np.ndarray]:
 
         if source_task_hp_importance is None:
-            hp_imp = compute_importance(promising_pdfs=promising_pdfs, params=self._params)
+            hp_imp = compute_importance(promising_pdfs=promising_pdfs, rng=self._params.rng)
             source_task_hp_importance = {hp_name: imp[1:] for hp_name, imp in hp_imp.items()}
         else:
-            hp_imp = compute_importance(promising_pdfs=[promising_pdfs[0]], params=self._params)
+            hp_imp = compute_importance(promising_pdfs=[promising_pdfs[0]], rng=self._params.rng)
 
         self._source_task_hp_importance = source_task_hp_importance
 

@@ -124,9 +124,13 @@ class TestIoUTaskSimilarity(unittest.TestCase):
 
             for choice in ts.method_choices:
                 if n_configs < 5:  # not sufficient number of observations
-                    assert ts._compute_task_similarity(task1_id=0, task2_id=1, method=choice) == 1.0
+                    sim = ts._compute_task_similarity(task1_id=0, task2_id=1, method=choice)
+                    assert sim == 1.0
                 else:
-                    assert ts._compute_task_similarity(task1_id=0, task2_id=1, method=choice) < 1.0
+                    sim = np.mean(
+                        [ts._compute_task_similarity(task1_id=0, task2_id=1, method=choice) for _ in range(5)]
+                    )
+                    assert sim < 1.0
 
     def test_compute(self) -> None:
         n_configs = 10
