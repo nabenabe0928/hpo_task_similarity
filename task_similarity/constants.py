@@ -25,6 +25,9 @@ class _IoUTaskSimilarityParameters(NamedTuple):
         n_resamples (Optional[int]):
             How many resamplings we use for the parzen estimator.
             If None, we do not use resampling.
+        dim_reduction_factor (float):
+            eta in the paper.
+            This parameter controls the number of dimensions to reduce.
     """
 
     n_samples: int
@@ -33,5 +36,6 @@ class _IoUTaskSimilarityParameters(NamedTuple):
     rng: np.random.RandomState
     objective_names: List[str]
     default_min_bandwidth_factor: float
+    dim_reduction_factor: float
     larger_is_better_objectives: Optional[List[int]]
     n_resamples: Optional[int]

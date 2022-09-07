@@ -34,6 +34,9 @@ class IoUTaskSimilarity:
             The hyperparameter importances in source tasks.
         observations_set (Optional[List[Dict[str, np.ndarray]]]):
             The observations for each task.
+        dim_reduction_factor (float):
+            eta in the paper.
+            This parameter controls the number of dimensions to reduce.
     """
 
     _method_choices = ["top_set", "total_variation"]
@@ -72,7 +75,7 @@ class IoUTaskSimilarity:
             default_min_bandwidth_factor=default_min_bandwidth_factor,
             larger_is_better_objectives=larger_is_better_objectives,
             n_resamples=n_resamples,
-            # dim_reduction_factor=dim_reduction_factor,
+            dim_reduction_factor=dim_reduction_factor,
         )
 
         self._source_task_hp_importance: Optional[Dict[str, np.ndarray]] = None
@@ -136,7 +139,7 @@ class IoUTaskSimilarity:
         n_observations = observations_set[0][list(hp_importance.keys())[0]].size
         new_promising_pdfs, new_config_space = reduce_dimension(
             hp_importance=hp_importance,
-            dim_after=int(np.log(n_observations) / np.log(5)),  # TODO
+            dim_after=int(np.log(n_observations) / np.log(self._params.dim_reduction_factor)),
             config_space=self._params.config_space,
             promising_pdfs=promising_pdfs,
         )
