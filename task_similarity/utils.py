@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 import ConfigSpace as CS
 
@@ -15,13 +15,17 @@ def _calculate_order(
     observations: Dict[str, np.ndarray],
     objective_names: List[str],
     larger_is_better_objectives: Optional[List[int]],
+    # TODO: Make it possible to change the method from outside
+    tie_break_method: Literal["crowding_distance", "avg_rank"] = "crowding_distance",
 ) -> np.ndarray:
     if len(objective_names) == 1:
         _sign = 1 if larger_is_better_objectives is None else -1
         order = np.argsort(_sign * observations[objective_names[0]])
     else:
         costs = np.array([observations[name] for name in objective_names]).T
-        ranks = nondominated_rank(costs=costs, larger_is_better_objectives=larger_is_better_objectives, tie_break=True)
+        ranks = nondominated_rank(
+            costs=costs, larger_is_better_objectives=larger_is_better_objectives, tie_break=tie_break_method
+        )
         order = np.argsort(ranks)
 
     return order
