@@ -1,7 +1,5 @@
 from typing import Dict, List, Literal, Optional
 
-import ConfigSpace as CS
-
 from fast_pareto import nondominated_rank
 
 import numpy as np
@@ -89,30 +87,3 @@ def _get_promising_pdfs(
         promising_pdfs.append(_get_promising_pdf(observations=observations, params=params))
 
     return promising_pdfs
-
-
-def _get_hypervolume(config_space: CS.ConfigurationSpace) -> float:
-    """
-    Compute the hypervolumen given the config space.
-
-    Args:
-        config_space (CS.ConfigurationSpace):
-            The configuration space for the parzen estimator.
-
-    Returns:
-        hypervolume (float):
-            The hypervolume of the config space.
-    """
-    hp_names = config_space.get_hyperparameter_names()
-    hv = 1.0
-    for hp_name in hp_names:
-        config = config_space.get_hyperparameter(hp_name)
-        config_type = config.__class__.__name__
-        if config_type.startswith("Categorical"):
-            hv *= len(config.choices)
-        elif config_type.startswith("Ordinal"):
-            hv *= config.meta["upper"] - config.meta["lower"]
-        else:
-            hv *= config.upper - config.lower
-
-    return hv

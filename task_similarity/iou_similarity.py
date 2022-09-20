@@ -8,7 +8,7 @@ from parzen_estimator import MultiVariateParzenEstimator
 
 from task_similarity.constants import _IoUTaskSimilarityParameters
 from task_similarity.parameter_selection import compute_importance, reduce_dimension
-from task_similarity.utils import _get_hypervolume, _get_promising_pdfs
+from task_similarity.utils import _get_promising_pdfs
 
 
 class IoUTaskSimilarity:
@@ -93,7 +93,7 @@ class IoUTaskSimilarity:
         promising_pdfs: List[MultiVariateParzenEstimator],
     ) -> None:
         # Define after the dimension reduction
-        self._hypervolume = _get_hypervolume(self._params.config_space)
+        self._hypervolume = promising_pdfs[0].hypervolume
         self._parzen_estimators = promising_pdfs
         self._samples = promising_pdfs[0].uniform_sample(self._params.n_samples, rng=self._params.rng)
         self._promising_quantile = self._params.promising_quantile

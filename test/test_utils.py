@@ -8,7 +8,6 @@ import numpy as np
 from task_similarity.constants import _IoUTaskSimilarityParameters
 from task_similarity.utils import (
     _calculate_order,
-    _get_hypervolume,
     _get_promising_pdf,
     _get_promising_pdfs,
 )
@@ -46,12 +45,6 @@ def test_calculate_order() -> None:
         larger_is_better_objectives=[1],
     )
     assert np.allclose(order, [0, 3, 1, 2])
-
-
-def test_get_hypervolume() -> None:
-    config_space, _ = get_random_config()
-    hv = _get_hypervolume(config_space)
-    assert hv == 5 * 4 * 3 * 2
 
 
 def test_get_promising_pdf_with_resampling() -> None:
