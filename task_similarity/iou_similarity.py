@@ -244,7 +244,7 @@ class IoUTaskSimilarity:
         total_variation = 0.5 * np.abs(pdf_diff * self._hypervolume).mean()
         return np.clip((1.0 - total_variation) / (1.0 + total_variation), 0.0, 1.0)
 
-    def _compute_task_similarity(self, task1_id: int, task2_id: int, method: str = "top_set") -> float:
+    def _compute_task_similarity(self, task1_id: int, task2_id: int, method: str = "total_variation") -> float:
         """
         Compute the task similarity.
 
@@ -265,7 +265,9 @@ class IoUTaskSimilarity:
 
         return getattr(self, f"_compute_task_similarity_by_{method}")(task1_id, task2_id)
 
-    def compute(self, task_pairs: Optional[List[Tuple[int, int]]] = None, method: str = "top_set") -> np.ndarray:
+    def compute(
+        self, task_pairs: Optional[List[Tuple[int, int]]] = None, method: str = "total_variation"
+    ) -> np.ndarray:
         """
         Compute the task similarity and return the task similarity array.
 
