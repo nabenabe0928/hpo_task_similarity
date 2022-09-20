@@ -136,7 +136,7 @@ class IoUTaskSimilarity:
             promising_pdfs=promising_pdfs,
             source_task_hp_importance=source_task_hp_importance,
         )
-        n_observations = observations_set[0][list(hp_importance.keys())[0]].size
+        n_observations = promising_pdfs[0].size
         if self._params.dim_reduction_factor == 1:
             dim_after = 0
         else:

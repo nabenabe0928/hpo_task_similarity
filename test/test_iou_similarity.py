@@ -41,7 +41,7 @@ class TestIoUTaskSimilarity(unittest.TestCase):
         IoUTaskSimilarity(n_samples, config_space, observations_set=[configs])
 
     def test_compute_promising_indices(self) -> None:
-        n_configs = 10
+        n_configs = 100
         config_space, configs = get_random_config(n_configs=n_configs)
         n_samples = 10
         configs["loss"] = np.arange(n_configs)
@@ -65,11 +65,12 @@ class TestIoUTaskSimilarity(unittest.TestCase):
                     ts = IoUTaskSimilarity(
                         n_samples=10,
                         config_space=config_space,
+                        promising_quantile=0.2,
                         observations_set=[configs],
                         dim_reduction_factor=eta,
                     )
                     if eta != 1:
-                        ans = min(len(config_space), int(np.log(n_configs) / np.log(eta)))
+                        ans = min(len(config_space), int(np.log(np.ceil(0.2 * n_configs)) / np.log(eta)))
                         assert len(ts._params.config_space) == ans
                     else:
                         assert len(ts._params.config_space) == 0
@@ -109,7 +110,7 @@ class TestIoUTaskSimilarity(unittest.TestCase):
 
         ts._compute_task_similarity_by_total_variation(task1_id=0, task2_id=1)
 
-        for n_configs in [3, 20]:
+        for n_configs in [3, 30]:
             observations_set = []
             config_space, configs = get_random_config(n_configs=n_configs)
             configs["loss"] = np.arange(n_configs)
@@ -119,7 +120,12 @@ class TestIoUTaskSimilarity(unittest.TestCase):
             observations_set.append(configs)
             rng = np.random.RandomState(0)
             ts = IoUTaskSimilarity(
-                n_samples=n_samples, config_space=config_space, observations_set=observations_set, rng=rng
+                n_samples=n_samples,
+                config_space=config_space,
+                observations_set=observations_set,
+                promising_quantile=0.1,
+                dim_reduction_factor=2.0,
+                rng=rng,
             )
 
             for choice in ts.method_choices:
@@ -128,15 +134,16 @@ class TestIoUTaskSimilarity(unittest.TestCase):
                     assert sim == 1.0
                 else:
                     sim = np.mean(
-                        [ts._compute_task_similarity(task1_id=0, task2_id=1, method=choice) for _ in range(5)]
+                        [ts._compute_task_similarity(task1_id=0, task2_id=1, method=choice) for _ in range(20)]
                     )
                     assert sim < 1.0
 
     def test_compute(self) -> None:
-        n_configs = 10
+        n_configs = 30
         config_space, configs = get_random_config(n_configs=n_configs)
         n_samples = 10
         configs["loss"] = np.arange(n_configs)
+        # Check with the same configurations!
         ts = IoUTaskSimilarity(
             n_samples=n_samples, config_space=config_space, observations_set=[configs, configs, configs]
         )
@@ -147,15 +154,17 @@ class TestIoUTaskSimilarity(unittest.TestCase):
         config_space = CS.ConfigurationSpace()
         config_space.add_hyperparameters(
             [
-                CSH.UniformFloatHyperparameter("x0", lower=-1, upper=1),
-                CSH.UniformFloatHyperparameter("x1", lower=-1, upper=1),
-                CSH.UniformFloatHyperparameter("x2", lower=-1, upper=1),
+                CSH.UniformFloatHyperparameter("x0", lower=-3, upper=3),
+                CSH.UniformFloatHyperparameter("x1", lower=-3, upper=3),
+                CSH.UniformFloatHyperparameter("x2", lower=-3, upper=3),
             ]
         )
         loss_metric = "dummy_loss"
         size = 100
-        configs1 = {f"x{idx}": vals for idx, vals in enumerate(np.random.random((3, 100)))}
-        configs2 = {f"x{idx}": vals for idx, vals in enumerate(np.random.random((3, 100)) - 1)}
+
+        # NO overlap!
+        configs1 = {f"x{idx}": vals + 2 for idx, vals in enumerate(np.random.random((3, size)))}
+        configs2 = {f"x{idx}": vals - 2 for idx, vals in enumerate(np.random.random((3, size)))}
         configs1[loss_metric] = np.arange(size)
         configs2[loss_metric] = np.arange(size)
         ts = IoUTaskSimilarity(
@@ -164,6 +173,8 @@ class TestIoUTaskSimilarity(unittest.TestCase):
             observations_set=[configs1, configs2],
             objective_names=[loss_metric],
         )
+
+        # No overlap ==> similarity is zero
         assert np.allclose(ts.compute(), np.identity(2))
 
 
