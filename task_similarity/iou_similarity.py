@@ -138,7 +138,8 @@ class IoUTaskSimilarity:
         )
         n_observations = promising_pdfs[0].size
         if self._params.dim_reduction_factor == 1:
-            dim_after = 0
+            # no reduction happens and config space does not change
+            return promising_pdfs
         else:
             dim_after = min(int(np.log(n_observations) / np.log(self._params.dim_reduction_factor)), len(hp_importance))
 

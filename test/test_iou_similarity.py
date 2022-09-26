@@ -73,7 +73,7 @@ class TestIoUTaskSimilarity(unittest.TestCase):
                         ans = min(len(config_space), int(np.log(np.ceil(0.2 * n_configs)) / np.log(eta)))
                         assert len(ts._params.config_space) == ans
                     else:
-                        assert len(ts._params.config_space) == 0
+                        assert len(ts._params.config_space) == len(config_space)
 
     def test_compute_importance(self) -> None:
         n_configs = 10
